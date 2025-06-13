@@ -132,9 +132,7 @@ Smart-Scheduler-AI-Agent/
 ├── token.pickle            # Google auth token (generated after first login)
 ├── templates/
 │   └── index.html          # Simple web chat interface
-└── static/
-    ├── style.css           # Frontend styling
-    └── script.js           # Chat interface JavaScript
+
 ```
 
 ## 📄 Backend Components
