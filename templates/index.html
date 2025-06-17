@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Scheduler AI Agent</title>
+    <title>Voice-Enabled Smart Scheduler AI Agent</title>
     <style>
         * {
             margin: 0;
@@ -53,11 +53,41 @@
             font-size: 14px;
         }
 
-        .reset-btn {
+        .header-controls {
             position: absolute;
             right: 20px;
             top: 50%;
             transform: translateY(-50%);
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .voice-toggle {
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s;
+            backdrop-filter: blur(10px);
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .voice-toggle:hover {
+            background: rgba(255,255,255,0.3);
+            transform: scale(1.05);
+        }
+
+        .voice-toggle.active {
+            background: rgba(76, 175, 80, 0.8);
+        }
+
+        .reset-btn {
             background: rgba(255,255,255,0.2);
             border: none;
             color: white;
@@ -71,7 +101,7 @@
 
         .reset-btn:hover {
             background: rgba(255,255,255,0.3);
-            transform: translateY(-50%) scale(1.05);
+            transform: scale(1.05);
         }
 
         .chat-messages {
@@ -123,6 +153,7 @@
             line-height: 1.5;
             white-space: pre-wrap;
             word-wrap: break-word;
+            position: relative;
         }
 
         .message.user .message-content {
@@ -138,6 +169,36 @@
             border: 1px solid #e0e0e0;
             border-bottom-left-radius: 6px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+
+        .audio-controls {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+            align-items: center;
+        }
+
+        .play-btn {
+            background: rgba(79, 172, 254, 0.1);
+            border: 1px solid #4facfe;
+            color: #4facfe;
+            padding: 4px 8px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .play-btn:hover {
+            background: rgba(79, 172, 254, 0.2);
+        }
+
+        .play-btn.playing {
+            background: #4facfe;
+            color: white;
         }
 
         .message-avatar {
@@ -170,6 +231,42 @@
             border-top: 1px solid #e0e0e0;
         }
 
+        .voice-status {
+            text-align: center;
+            margin-bottom: 15px;
+            padding: 10px;
+            border-radius: 10px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .voice-status.recording {
+            background: rgba(244, 67, 54, 0.1);
+            color: #f44336;
+            border: 1px solid rgba(244, 67, 54, 0.3);
+            display: block;
+            animation: pulse 1.5s infinite;
+        }
+
+        .voice-status.processing {
+            background: rgba(255, 193, 7, 0.1);
+            color: #ffc107;
+            border: 1px solid rgba(255, 193, 7, 0.3);
+            display: block;
+        }
+
+        .voice-status.error {
+            background: rgba(244, 67, 54, 0.1);
+            color: #f44336;
+            border: 1px solid rgba(244, 67, 54, 0.3);
+            display: block;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
         .chat-input-form {
             display: flex;
             gap: 12px;
@@ -193,6 +290,52 @@
         .chat-input:focus {
             border-color: #4facfe;
             box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.1);
+        }
+
+        .input-controls {
+            display: flex;
+            gap: 8px;
+        }
+
+        .voice-btn {
+            background: linear-gradient(135deg, #f44336 0%, #e91e63 100%);
+            color: white;
+            border: none;
+            padding: 15px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 50px;
+            height: 50px;
+            position: relative;
+        }
+
+        .voice-btn:hover:not(:disabled) {
+            transform: scale(1.05);
+            box-shadow: 0 4px 15px rgba(244, 67, 54, 0.4);
+        }
+
+        .voice-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .voice-btn.recording {
+            background: linear-gradient(135deg, #ff5722 0%, #f44336 100%);
+            animation: recordingPulse 1s infinite;
+        }
+
+        @keyframes recordingPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+
+        .voice-btn.processing {
+            background: linear-gradient(135deg, #ffc107 0%, #ff9800 100%);
         }
 
         .send-btn {
@@ -280,9 +423,88 @@
             animation: pulse 2s infinite;
         }
 
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+        .voice-wave {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80px;
+            height: 80px;
+            border: 2px solid rgba(244, 67, 54, 0.3);
+            border-radius: 50%;
+            animation: voiceWave 2s infinite;
+            display: none;
+        }
+
+        .voice-btn.recording .voice-wave {
+            display: block;
+        }
+
+        @keyframes voiceWave {
+            0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+            100% { transform: translate(-50%, -50%) scale(2); opacity: 0; }
+        }
+
+        .permissions-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .permissions-content {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            max-width: 400px;
+            margin: 20px;
+        }
+
+        .permissions-content h3 {
+            margin-bottom: 15px;
+            color: #333;
+        }
+
+        .permissions-content p {
+            margin-bottom: 20px;
+            color: #666;
+            line-height: 1.5;
+        }
+
+        .permissions-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: #4facfe;
+            color: white;
+        }
+
+        .btn-secondary {
+            background: #e0e0e0;
+            color: #333;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
         }
 
         /* Mobile responsiveness */
@@ -302,6 +524,13 @@
             
             .chat-header h1 {
                 font-size: 20px;
+            }
+            
+            .header-controls {
+                position: static;
+                transform: none;
+                margin-top: 10px;
+                justify-content: center;
             }
             
             .message-content {
@@ -325,36 +554,242 @@
                 <div class="status-dot"></div>
                 <span>Online</span>
             </div>
-            <h1>🤖 Smart Scheduler</h1>
-            <p>AI-powered meeting scheduler</p>
-            <button class="reset-btn" onclick="resetChat()">🔄 Reset</button>
+            <h1>🎙️ Voice Scheduler</h1>
+            <p>AI-powered voice meeting scheduler</p>
+            <div class="header-controls">
+                <button class="voice-toggle" id="voiceToggle" onclick="toggleVoiceMode()">
+                    🔊 <span id="voiceToggleText">Voice: OFF</span>
+                </button>
+                <button class="reset-btn" onclick="resetChat()">🔄 Reset</button>
+            </div>
         </div>
         
         <div class="chat-messages" id="chatMessages">
             <div class="welcome-message">
-                👋 Hi! I'm your Smart Scheduler AI. I can help you find available meeting times.<br>
-                Just tell me what kind of meeting you'd like to schedule!
+                👋 Hi! I'm your Voice-Enabled Smart Scheduler AI.<br>
+                Click the microphone to speak or type your meeting requests!
             </div>
         </div>
         
         <div class="chat-input-container">
+            <div class="voice-status" id="voiceStatus"></div>
             <form class="chat-input-form" onsubmit="sendMessage(event)">
                 <textarea 
                     class="chat-input" 
                     id="messageInput" 
-                    placeholder="Type your message here... (e.g., 'I need a 1-hour meeting')"
+                    placeholder="Type your message or use voice... (e.g., 'I need a 1-hour meeting')"
                     rows="1"
                     onkeydown="handleKeyDown(event)"
                 ></textarea>
-                <button type="submit" class="send-btn" id="sendBtn">
-                    ➤
-                </button>
+                <div class="input-controls">
+                    <button type="button" class="voice-btn" id="voiceBtn" onclick="toggleRecording()">
+                        🔊
+                        <div class="voice-wave"></div>
+                    </button>
+                    <button type="submit" class="send-btn" id="sendBtn">
+                        ➤
+                    </button>
+                </div>
             </form>
         </div>
     </div>
 
+    <!-- Permissions Modal -->
+    <div class="permissions-modal" id="permissionsModal">
+        <div class="permissions-content">
+            <h3>🎤 Microphone Access</h3>
+            <p>This app needs microphone access to enable voice commands. Your voice data is processed locally and securely.</p>
+            <div class="permissions-buttons">
+                <button class="btn btn-primary" onclick="requestMicrophonePermission()">Allow Microphone</button>
+                <button class="btn btn-secondary" onclick="closePermissionsModal()">Use Text Only</button>
+            </div>
+        </div>
+    </div>
+
     <script>
+        // Voice functionality variables
+        let recognition;
+        let isRecording = false;
         let isTyping = false;
+        let voiceEnabled = false;
+        let speechSynthesis = window.speechSynthesis;
+        let currentUtterance = null;
+
+        // Initialize voice functionality
+        function initializeVoice() {
+            if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                recognition = new SpeechRecognition();
+                
+                recognition.continuous = false;
+                recognition.interimResults = false;
+                recognition.lang = 'en-US';
+                recognition.maxAlternatives = 1;
+
+                recognition.onstart = function() {
+                    isRecording = true;
+                    updateVoiceStatus('recording', '🔊 Listening... Speak now!');
+                    document.getElementById('voiceBtn').classList.add('recording');
+                };
+
+                recognition.onresult = function(event) {
+                    const transcript = event.results[0][0].transcript;
+                    document.getElementById('messageInput').value = transcript;
+                    updateVoiceStatus('processing', '🔄 Processing your voice...');
+                    
+                    // Auto-send the message after a short delay
+                    setTimeout(() => {
+                        if (transcript.trim()) {
+                            sendMessage({ preventDefault: () => {} });
+                        }
+                    }, 500);
+                };
+
+                recognition.onerror = function(event) {
+                    let errorMessage = 'Voice recognition error occurred';
+                    switch(event.error) {
+                        case 'no-speech':
+                            errorMessage = 'No speech detected. Please try again.';
+                            break;
+                        case 'audio-capture':
+                            errorMessage = 'Microphone not accessible. Check permissions.';
+                            break;
+                        case 'not-allowed':
+                            errorMessage = 'Microphone permission denied.';
+                            break;
+                        case 'network':
+                            errorMessage = 'Network error. Check your connection.';
+                            break;
+                    }
+                    updateVoiceStatus('error', `❌ ${errorMessage}`);
+                    setTimeout(clearVoiceStatus, 3000);
+                };
+
+                recognition.onend = function() {
+                    isRecording = false;
+                    document.getElementById('voiceBtn').classList.remove('recording', 'processing');
+                    if (document.getElementById('voiceStatus').classList.contains('recording')) {
+                        clearVoiceStatus();
+                    }
+                };
+
+                return true;
+            }
+            return false;
+        }
+
+        function toggleVoiceMode() {
+            if (!voiceEnabled) {
+                if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+                    showPermissionsModal();
+                } else {
+                    alert('Voice recognition is not supported in your browser. Please use Chrome, Edge, or Safari.');
+                }
+            } else {
+                voiceEnabled = false;
+                updateVoiceToggle();
+            }
+        }
+
+        function showPermissionsModal() {
+            document.getElementById('permissionsModal').style.display = 'flex';
+        }
+
+        function closePermissionsModal() {
+            document.getElementById('permissionsModal').style.display = 'none';
+        }
+
+        function requestMicrophonePermission() {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(function(stream) {
+                    // Permission granted
+                    stream.getTracks().forEach(track => track.stop()); // Stop the stream
+                    voiceEnabled = true;
+                    initializeVoice();
+                    updateVoiceToggle();
+                    closePermissionsModal();
+                })
+                .catch(function(error) {
+                    console.error('Microphone permission denied:', error);
+                    updateVoiceStatus('error', '❌ Microphone permission denied');
+                    setTimeout(clearVoiceStatus, 3000);
+                    closePermissionsModal();
+                });
+        }
+
+        function updateVoiceToggle() {
+            const toggle = document.getElementById('voiceToggle');
+            const text = document.getElementById('voiceToggleText');
+            
+            if (voiceEnabled) {
+                toggle.classList.add('active');
+                text.textContent = 'Voice: ON';
+            } else {
+                toggle.classList.remove('active');
+                text.textContent = 'Voice: OFF';
+            }
+        }
+
+        function toggleRecording() {
+            if (!voiceEnabled) {
+                showPermissionsModal();
+                return;
+            }
+
+            if (isRecording) {
+                recognition.stop();
+            } else if (!isTyping) {
+                recognition.start();
+            }
+        }
+
+        function updateVoiceStatus(type, message) {
+            const status = document.getElementById('voiceStatus');
+            status.className = `voice-status ${type}`;
+            status.textContent = message;
+        }
+
+        function clearVoiceStatus() {
+            const status = document.getElementById('voiceStatus');
+            status.className = 'voice-status';
+            status.style.display = 'none';
+        }
+
+        function speakText(text) {
+            if (!voiceEnabled || !speechSynthesis) return;
+
+            // Stop any current speech
+            if (currentUtterance) {
+                speechSynthesis.cancel();
+            }
+
+            currentUtterance = new SpeechSynthesisUtterance(text);
+            currentUtterance.rate = 0.9;
+            currentUtterance.pitch = 1;
+            currentUtterance.volume = 0.8;
+
+            // Try to use a more natural voice if available
+            const voices = speechSynthesis.getVoices();
+            const preferredVoice = voices.find(voice => 
+                voice.name.includes('Natural') || 
+                voice.name.includes('Enhanced') ||
+                voice.name.includes('Premium')
+            ) || voices.find(voice => voice.lang.startsWith('en'));
+            
+            if (preferredVoice) {
+                currentUtterance.voice = preferredVoice;
+            }
+
+            currentUtterance.onstart = function() {
+                // Visual feedback for speech
+            };
+
+            currentUtterance.onend = function() {
+                currentUtterance = null;
+            };
+
+            speechSynthesis.speak(currentUtterance);
+        }
 
         function sendMessage(event) {
             event.preventDefault();
@@ -367,9 +802,10 @@
             // Add user message to chat
             addMessage(message, 'user');
             
-            // Clear input
+            // Clear input and voice status
             input.value = '';
             input.style.height = 'auto';
+            clearVoiceStatus();
             
             // Show typing indicator
             showTypingIndicator();
@@ -386,19 +822,19 @@
             .then(data => {
                 hideTypingIndicator();
                 if (data.success) {
-                    addMessage(data.response, 'bot');
+                    addMessage(data.response, 'bot', true);
                 } else {
-                    addMessage('Sorry, I encountered an error. Please try again.', 'bot');
+                    addMessage('Sorry, I encountered an error. Please try again.', 'bot', true);
                 }
             })
             .catch(error => {
                 hideTypingIndicator();
-                addMessage('Connection error. Please check your internet and try again.', 'bot');
+                addMessage('Connection error. Please check your internet and try again.', 'bot', true);
                 console.error('Error:', error);
             });
         }
 
-        function addMessage(text, sender) {
+        function addMessage(text, sender, shouldSpeak = false) {
             const messagesContainer = document.getElementById('chatMessages');
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${sender}`;
@@ -411,6 +847,36 @@
             content.className = 'message-content';
             content.textContent = text;
             
+            // Add audio controls for bot messages
+            if (sender === 'bot' && voiceEnabled) {
+                const audioControls = document.createElement('div');
+                audioControls.className = 'audio-controls';
+                
+                const playBtn = document.createElement('button');
+                playBtn.className = 'play-btn';
+                playBtn.innerHTML = '🔊 Play';
+                playBtn.onclick = () => toggleMessageAudio(playBtn, text);
+                
+                audioControls.appendChild(playBtn);
+                content.appendChild(audioControls);
+                
+                // Auto-play if voice is enabled and this is a new response
+                if (shouldSpeak) {
+                    setTimeout(() => speakText(text), 500);
+                    playBtn.classList.add('playing');
+                    playBtn.innerHTML = '🔇 Playing...';
+                    
+                    // Reset button after speech
+                    if (currentUtterance) {
+                        currentUtterance.onend = function() {
+                            playBtn.classList.remove('playing');
+                            playBtn.innerHTML = '🔊 Play';
+                            currentUtterance = null;
+                        };
+                    }
+                }
+            }
+            
             messageDiv.appendChild(avatar);
             messageDiv.appendChild(content);
             
@@ -418,9 +884,33 @@
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
 
+        function toggleMessageAudio(button, text) {
+            if (button.classList.contains('playing')) {
+                // Stop current speech
+                speechSynthesis.cancel();
+                button.classList.remove('playing');
+                button.innerHTML = '🔊 Play';
+            } else {
+                // Start speech
+                speakText(text);
+                button.classList.add('playing');
+                button.innerHTML = '🔇 Playing...';
+                
+                // Reset button when speech ends
+                if (currentUtterance) {
+                    currentUtterance.onend = function() {
+                        button.classList.remove('playing');
+                        button.innerHTML = '🔊 Play';
+                        currentUtterance = null;
+                    };
+                }
+            }
+        }
+
         function showTypingIndicator() {
             isTyping = true;
             document.getElementById('sendBtn').disabled = true;
+            document.getElementById('voiceBtn').disabled = true;
             
             const messagesContainer = document.getElementById('chatMessages');
             const typingDiv = document.createElement('div');
@@ -451,6 +941,9 @@
         function hideTypingIndicator() {
             isTyping = false;
             document.getElementById('sendBtn').disabled = false;
+            if (voiceEnabled) {
+                document.getElementById('voiceBtn').disabled = false;
+            }
             
             const typingIndicator = document.getElementById('typingIndicator');
             if (typingIndicator) {
@@ -466,42 +959,321 @@
             textarea.style.height = Math.min(textarea.scrollHeight, 100) + 'px';
             
             // Send on Enter (but not Shift+Enter)
-            if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                sendMessage(event);
-            }
+        if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            sendMessage(event);
         }
+    }
 
-        function resetChat() {
-            if (confirm('Are you sure you want to reset the conversation?')) {
-                fetch('/reset', {
-                    method: 'POST'
-                })
-                .then(() => {
-                    // Clear chat messages
-                    const messagesContainer = document.getElementById('chatMessages');
-                    messagesContainer.innerHTML = `
-                        <div class="welcome-message">
-                            👋 Hi! I'm your Smart Scheduler AI. I can help you find available meeting times.<br>
-                            Just tell me what kind of meeting you'd like to schedule!
-                        </div>
-                    `;
-                })
-                .catch(error => {
-                    console.error('Reset error:', error);
-                });
-            }
+    function resetChat() {
+        const messagesContainer = document.getElementById('chatMessages');
+        messagesContainer.innerHTML = `
+            <div class="welcome-message">
+                👋 Hi! I'm your Voice-Enabled Smart Scheduler AI.<br>
+                Click the microphone to speak or type your meeting requests!
+            </div>
+        `;
+        
+        // Stop any ongoing speech
+        if (speechSynthesis.speaking) {
+            speechSynthesis.cancel();
         }
+        
+        // Clear input
+        document.getElementById('messageInput').value = '';
+        clearVoiceStatus();
+        
+        // Reset voice state
+        if (isRecording && recognition) {
+            recognition.stop();
+        }
+    }
 
-        // Auto-focus input on page load
-        window.addEventListener('load', () => {
+    // Enhanced error handling for voice features
+    function handleVoiceError(error) {
+        console.error('Voice error:', error);
+        
+        let userMessage = 'Voice feature unavailable. Please use text input.';
+        let fallbackAction = () => {
+            // Focus on text input as fallback
             document.getElementById('messageInput').focus();
-        });
-
-        // Add initial bot greeting after a short delay
+        };
+        
+        switch(error.type || error.error) {
+            case 'not-allowed':
+            case 'permission-denied':
+                userMessage = 'Microphone access denied. Please enable microphone permissions and refresh the page.';
+                break;
+            case 'no-speech':
+                userMessage = 'No speech detected. Please try speaking again.';
+                fallbackAction = () => {
+                    // Allow immediate retry
+                    setTimeout(() => {
+                        if (voiceEnabled && !isRecording) {
+                            document.getElementById('voiceBtn').disabled = false;
+                        }
+                    }, 1000);
+                };
+                break;
+            case 'audio-capture':
+                userMessage = 'Microphone not accessible. Check if another app is using it.';
+                break;
+            case 'network':
+                userMessage = 'Network error during voice recognition. Check your connection.';
+                break;
+            case 'aborted':
+                // User stopped recording, no error message needed
+                return;
+        }
+        
+        updateVoiceStatus('error', `❌ ${userMessage}`);
         setTimeout(() => {
-            addMessage("Hello! I'm your Smart Scheduler AI assistant. I can help you find and schedule meetings. What would you like to schedule today?", 'bot');
-        }, 1000);
+            clearVoiceStatus();
+            fallbackAction();
+        }, 4000);
+    }
+
+    // Enhanced TTS with better voice selection
+    function initializeTTS() {
+        if (!speechSynthesis) return false;
+        
+        // Wait for voices to load
+        let voicesLoaded = false;
+        
+        function loadVoices() {
+            const voices = speechSynthesis.getVoices();
+            if (voices.length > 0 && !voicesLoaded) {
+                voicesLoaded = true;
+                console.log('Available voices:', voices.map(v => v.name));
+            }
+        }
+        
+        // Load voices immediately and on change
+        loadVoices();
+        speechSynthesis.onvoiceschanged = loadVoices;
+        
+        return true;
+    }
+
+    // Enhanced speech with queue management
+    function speakText(text, priority = false) {
+        if (!voiceEnabled || !speechSynthesis) return;
+
+        // Stop current speech if priority or if explicitly requested
+        if (priority || speechSynthesis.speaking) {
+            speechSynthesis.cancel();
+        }
+
+        // Clean text for better pronunciation
+        const cleanText = text
+            .replace(/[🎤🤖👋🔄➤🔊🔇❌]/g, '') // Remove emojis
+            .replace(/\s+/g, ' ') // Normalize whitespace
+            .trim();
+
+        if (!cleanText) return;
+
+        currentUtterance = new SpeechSynthesisUtterance(cleanText);
+        
+        // Voice settings
+        currentUtterance.rate = 0.9;
+        currentUtterance.pitch = 1.0;
+        currentUtterance.volume = 0.8;
+
+        // Select best available voice
+        const voices = speechSynthesis.getVoices();
+        const preferredVoice = voices.find(voice => {
+            const name = voice.name.toLowerCase();
+            return (name.includes('natural') || 
+                   name.includes('enhanced') || 
+                   name.includes('premium') ||
+                   name.includes('neural')) && 
+                   voice.lang.startsWith('en');
+        }) || voices.find(voice => 
+            voice.lang.startsWith('en-US')
+        ) || voices.find(voice => 
+            voice.lang.startsWith('en')
+        );
+        
+        if (preferredVoice) {
+            currentUtterance.voice = preferredVoice;
+        }
+
+        // Error handling for TTS
+        currentUtterance.onerror = function(event) {
+            console.error('TTS Error:', event.error);
+            currentUtterance = null;
+        };
+
+        currentUtterance.onend = function() {
+            currentUtterance = null;
+        };
+
+        try {
+            speechSynthesis.speak(currentUtterance);
+        } catch (error) {
+            console.error('TTS failed:', error);
+            currentUtterance = null;
+        }
+    }
+
+    // Enhanced recording with better state management
+    function startRecording() {
+        if (!voiceEnabled || !recognition || isRecording) return;
+        
+        try {
+            // Clear any existing status
+            clearVoiceStatus();
+            
+            // Start recognition
+            recognition.start();
+            
+            // Visual feedback
+            const voiceBtn = document.getElementById('voiceBtn');
+            voiceBtn.classList.add('recording');
+            voiceBtn.disabled = true;
+            
+            // Timeout safety
+            setTimeout(() => {
+                if (isRecording) {
+                    recognition.stop();
+                    handleVoiceError({ type: 'timeout' });
+                }
+            }, 15000); // 15 second timeout
+            
+        } catch (error) {
+            handleVoiceError(error);
+        }
+    }
+
+    function stopRecording() {
+        if (recognition && isRecording) {
+            recognition.stop();
+        }
+    }
+
+    // Enhanced permission handling
+    async function checkMicrophonePermissions() {
+        try {
+            if (!navigator.permissions) {
+                return 'unknown';
+            }
+            
+            const permission = await navigator.permissions.query({ name: 'microphone' });
+            return permission.state; // 'granted', 'denied', or 'prompt'
+        } catch (error) {
+            console.warn('Permission API not available:', error);
+            return 'unknown';
+        }
+    }
+
+    // Auto-initialize when page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize TTS
+        initializeTTS();
+        
+        // Check microphone permissions on load
+        checkMicrophonePermissions().then(state => {
+            console.log('Microphone permission state:', state);
+            if (state === 'granted') {
+                // Auto-enable voice if permission already granted
+                voiceEnabled = true;
+                initializeVoice();
+                updateVoiceToggle();
+            }
+        });
+        
+        // Focus on input
+        document.getElementById('messageInput').focus();
+        
+        // Handle page visibility changes
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden && isRecording) {
+                stopRecording();
+            }
+        });
+        
+        // Handle beforeunload to stop speech
+        window.addEventListener('beforeunload', function() {
+            if (speechSynthesis.speaking) {
+                speechSynthesis.cancel();
+            }
+            if (isRecording) {
+                stopRecording();
+            }
+        });
+    });
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', function(event) {
+        // Ctrl/Cmd + Enter for voice recording
+        if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+            event.preventDefault();
+            toggleRecording();
+        }
+        
+        // Escape to stop recording or speech
+        if (event.key === 'Escape') {
+            if (isRecording) {
+                stopRecording();
+            }
+            if (speechSynthesis.speaking) {
+                speechSynthesis.cancel();
+            }
+        }
+    });
+
+    // Enhanced message handling with better error recovery
+    function handleConnectionError() {
+        const retryButton = document.createElement('button');
+        retryButton.textContent = '🔄 Retry';
+        retryButton.className = 'btn btn-primary';
+        retryButton.style.marginTop = '10px';
+        retryButton.onclick = function() {
+            // Get the last user message and retry
+            const messages = document.querySelectorAll('.message.user .message-content');
+            if (messages.length > 0) {
+                const lastMessage = messages[messages.length - 1].textContent;
+                document.getElementById('messageInput').value = lastMessage;
+            }
+            retryButton.remove();
+        };
+        
+        const lastBotMessage = document.querySelector('.message.bot:last-child .message-content');
+        if (lastBotMessage) {
+            lastBotMessage.appendChild(retryButton);
+        }
+    }
+
+    // Update the original sendMessage function to use enhanced error handling
+    const originalFetch = window.fetch;
+    window.fetch = function(...args) {
+        return originalFetch.apply(this, args).catch(error => {
+            handleConnectionError();
+            throw error;
+        });
+    };
+
+    // Additional utility functions for voice features
+    function getVoiceCapabilities() {
+        return {
+            speechRecognition: 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window,
+            speechSynthesis: 'speechSynthesis' in window,
+            mediaDevices: 'mediaDevices' in navigator,
+            permissions: 'permissions' in navigator
+        };
+    }
+
+    // Export for debugging
+    window.voiceScheduler = {
+        toggleVoiceMode,
+        speakText,
+        getVoiceCapabilities,
+        checkMicrophonePermissions,
+        voiceEnabled: () => voiceEnabled,
+        isRecording: () => isRecording
+    };
+
+    console.log('Voice Scheduler initialized with capabilities:', getVoiceCapabilities());
     </script>
 </body>
 </html>
