@@ -273,7 +273,26 @@ class SchedulerAgent:
                 if self._is_valid_duration(duration):
                     state.meeting_duration = duration
                     state.stage = SchedulingStage.COLLECT_DATE
+
+                    # Check if date was also provided
+                    if entities.get('date_preference'):
+                        parsed_date = self._parse_date_with_gemini(entities['date_preference'])
+                        if parsed_date:
+                            state.preferred_date = entities['date_preference']
+                            state.parsed_date = parsed_date
+                            state.stage = SchedulingStage.COLLECT_TIME
+                            date_str = parsed_date.strftime('%A, %B %d')
+
+                            # Check if time preference was also provided
+                            if entities.get('time_preference'):
+                                state.preferred_time = entities['time_preference']
+                                return self._search_and_show_slots(state)
+
+                            return f"Perfect! A {duration}-minute meeting on {date_str}. What time do you prefer?"
+
                     return f"Perfect! A {duration}-minute meeting. What date would you prefer?"
+                
+                
             
             return "Great! I'll help you schedule a meeting. How long should the meeting be? (e.g., 30 minutes, 1 hour)"
         
@@ -295,6 +314,12 @@ class SchedulerAgent:
                     state.parsed_date = parsed_date
                     state.stage = SchedulingStage.COLLECT_TIME
                     date_str = parsed_date.strftime('%A, %B %d')
+
+                    # Check if time preference was also provided
+                    if entities.get('time_preference'):
+                        state.preferred_time = entities['time_preference']
+                        return self._search_and_show_slots(state)
+
                     return f"Perfect! A {duration}-minute meeting on {date_str}. What time do you prefer?"
             
             return f"Perfect! A {duration}-minute meeting. What date would you prefer?"
@@ -485,9 +510,9 @@ class SchedulerAgent:
         
         return (
             f"Great choice! I've selected:\n\n"
-            f"📅 **Date:** {date_str}\n"
-            f"⏰ **Time:** {time_str} - {end_time_str} IST\n"
-            f"⏱️ **Duration:** {state.meeting_duration} minutes\n\n"
+            f"📅 Date: {date_str}\n"
+            f"⏰ Time: {time_str} - {end_time_str} IST\n"
+            f"⏱️ Duration: {state.meeting_duration} minutes\n\n"
             f"What would you like to name this meeting? (e.g., 'Team Standup', 'Client Call', or just say 'skip' for a default name)"
         )
     
@@ -512,10 +537,10 @@ class SchedulerAgent:
         
         return (
             f"Perfect! Let me confirm all the details:\n\n"
-            f"📋 **Title:** {display_title}\n"
-            f"📅 **Date:** {date_str}\n"
-            f"⏰ **Time:** {time_str} - {end_time_str} IST\n"
-            f"⏱️ **Duration:** {state.meeting_duration} minutes\n\n"
+            f"📋 Title: {display_title}\n"
+            f"📅 Date: {date_str}\n"
+            f"⏰ Time: {time_str} - {end_time_str} IST\n"
+            f"⏱️ Duration: {state.meeting_duration} minutes\n\n"
             f"Should I book this meeting? Reply 'yes' to confirm or 'no' to make changes."
         )
     
@@ -545,11 +570,11 @@ class SchedulerAgent:
                 time_str = start_time.strftime('%I:%M %p')
                 
                 return (
-                    f"🎉 **Meeting booked successfully!**\n\n"
-                    f"📋 **Title:** {meeting_title}\n"
-                    f"📅 **Date:** {date_str}\n"
-                    f"⏰ **Time:** {time_str} IST\n"
-                    f"⏱️ **Duration:** {state.meeting_duration} minutes\n\n"
+                    f"🎉 Meeting booked successfully!\n\n"
+                    f"📋 Title: {meeting_title}\n"
+                    f"📅 Date: {date_str}\n"
+                    f"⏰ Time: {time_str} IST\n"
+                    f"⏱️ Duration: {state.meeting_duration} minutes\n\n"
                     f"The meeting has been added to your calendar. Need to schedule another meeting?"
                 )
             else:
@@ -558,35 +583,3 @@ class SchedulerAgent:
         except Exception as e:
             logger.error(f"Booking failed: {e}")
             return f"Sorry, I couldn't book the meeting: {str(e)}. Please try again."
-
-
-# For testing and development
-def main():
-    """Test the scheduler agent with sample conversation"""
-    try:
-        agent = SchedulerAgent()
-        logger.info("Smart Scheduler Agent initialized successfully")
-        
-        # Test conversation flow
-        session_id = "test_session"
-        
-        test_messages = [
-            "Hi, I need to schedule a meeting",
-            "It should be 60 minutes long", 
-            "How about tomorrow afternoon?",
-            "I'll take option 1",
-            "Call it Team Standup",
-            "Yes, please book it"
-        ]
-        
-        for message in test_messages:
-            print(f"\nUser: {message}")
-            response = agent.process_message(message, session_id)
-            print(f"Agent: {response}")
-        
-    except Exception as e:
-        logger.error(f"Error during testing: {e}")
-
-
-if __name__ == "__main__":
-    main()
