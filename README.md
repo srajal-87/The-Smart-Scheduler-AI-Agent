@@ -1,6 +1,4 @@
-# Smart Scheduler AI Agent 🤖📅🎙️
-
-An intelligent voice-enabled meeting scheduling assistant that combines the power of Google's Gemini AI with Google Calendar integration to provide seamless, conversational meeting booking through natural language processing and voice interaction.
+# Smart Scheduler AI Agent 🤖
 
 ## 📌 Project Overview
 
@@ -148,48 +146,6 @@ Smart-Scheduler-AI-Agent/
 ├── templates/
 │   └── index.html          # Voice-enabled web chat interface
 ```
-
-## 📄 Backend Components
-
-### `agent.py` - Core Intelligence
-- **SchedulerAgent Class**: Main orchestrator handling conversation states
-- **Multi-stage Conversation Flow**: Greeting → Duration → Date → Time → Slots → Title → Confirmation
-- **Gemini Integration**: Natural language processing and entity extraction
-- **Session Management**: Maintains user context across voice/text interactions
-- **Error Handling**: Graceful fallbacks for parsing failures
-
-### `audio_utils.py` - Voice Processing Engine
-- **Speech-to-Text**: Whisper AI integration for accurate transcription
-- **Text-to-Speech**: ElevenLabs integration for natural voice synthesis
-- **Audio Normalization**: Automatic audio preprocessing for optimal quality
-- **Format Support**: Multiple audio formats (WAV, MP3, M4A, FLAC, OGG)
-- **Error Recovery**: Robust handling of audio processing failures
-
-### `voice_config.py` - Voice System Configuration
-- **API Configuration**: ElevenLabs settings and voice parameters
-- **Audio Quality Settings**: Sample rates, formats, and optimization
-- **Voice Customization**: Stability, similarity, and style parameters
-- **Performance Tuning**: Timeout settings and file size limits
-
-### `calendar_service.py` - Calendar Integration
-- **CalendarService Class**: Google Calendar API wrapper
-- **Authentication Management**: OAuth2 flow and token handling
-- **Slot Finding**: Intelligent time slot discovery based on preferences
-- **Event Creation**: Meeting booking with customizable details
-- **Conflict Detection**: Prevents double-booking by checking existing events
-
-### `prompts.py` - AI Instruction Templates
-- **System Prompts**: Detailed instructions for Gemini's behavior
-- **Conversation Guidelines**: Response formatting and tone specifications
-- **Entity Extraction Templates**: Structured prompts for parsing user input
-- **Voice-Optimized Responses**: Instructions for natural speech patterns
-
-### `main.py` - Voice-Enabled Web Interface
-- **Flask Application**: RESTful API endpoints for chat and voice functionality
-- **Voice Chat Endpoint**: `/voice-chat` for audio processing
-- **Session Management**: User state persistence across voice/text sessions
-- **Audio Processing**: Real-time transcription and synthesis
-- **Error Handling**: Comprehensive audio and API error responses
 
 ## 🔧 Key Features
 
