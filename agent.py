@@ -4,7 +4,6 @@ import os
 import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
-
 import google.generativeai as genai
 import pytz
 from dateutil import parser
@@ -20,31 +19,24 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class SchedulingStage:
-    """Enum-like class for conversation stages"""
-    GREETING = 'greeting'
-    COLLECT_DURATION = 'collect_duration'
-    COLLECT_DATE = 'collect_date'
-    COLLECT_TIME = 'collect_time'
-    SHOW_SLOTS = 'show_slots'
-    COLLECT_TITLE = 'collect_title'
-    CONFIRM_BOOKING = 'confirm_booking'
-    COMPLETED = 'completed'
-
-
 class ConversationState:
     """Manages the state of a scheduling conversation"""
     
     def __init__(self):
-        self.stage = SchedulingStage.GREETING
+        # Required fields for booking
         self.meeting_duration = None
         self.preferred_date = None
         self.preferred_time = None
         self.parsed_date = None
+        
+        # Optional fields
+        self.meeting_title = None
+        
+        # System state
         self.available_slots = []
         self.selected_slot = None
-        self.meeting_title = None
         self.conversation_history = []
+        self.awaiting_confirmation = False
     
     def reset(self):
         """Reset conversation to initial state"""
@@ -57,11 +49,30 @@ class ConversationState:
             'message': message,
             'timestamp': datetime.now(timezone).isoformat()
         })
+    
+    def get_missing_required_fields(self) -> List[str]:
+        """Return list of required fields that are still missing"""
+        missing = []
+        if not self.meeting_duration:
+            missing.append('duration')
+        if not self.parsed_date:
+            missing.append('date')
+        if not self.preferred_time:
+            missing.append('time')
+        return missing
+    
+    def is_ready_for_slots(self) -> bool:
+        """Check if we have enough info to search for slots"""
+        return len(self.get_missing_required_fields()) == 0
+    
+    def is_ready_for_booking(self) -> bool:
+        """Check if we have selected a slot and ready to book"""
+        return self.selected_slot is not None
 
 
 class SchedulerAgent:
     """
-    Main scheduling agent that handles conversation flow and coordinates
+    Intent-based scheduling agent that handles conversation flow and coordinates
     between Gemini LLM and Google Calendar API
     """
     
@@ -106,16 +117,7 @@ class SchedulerAgent:
             logger.info(f"Reset conversation for session: {session_id}")
     
     def process_message(self, user_input: str, session_id: str) -> str:
-        """
-        Main entry point for processing user messages
-        
-        Args:
-            user_input: The user's message
-            session_id: Unique identifier for the conversation session
-            
-        Returns:
-            Bot response string
-        """
+        """Main entry point for processing user messages"""
         state = self._get_conversation_state(session_id)
         state.add_message('user', user_input, self.timezone)
         
@@ -125,7 +127,7 @@ class SchedulerAgent:
                 state = self._get_conversation_state(session_id)
                 response = "Let's start fresh! I'll help you schedule a new meeting. How long should the meeting be?"
             else:
-                response = self._route_conversation(user_input, state)
+                response = self._process_intent_and_state(user_input, state)
             
             state.add_message('assistant', response, self.timezone)
             return response
@@ -138,26 +140,181 @@ class SchedulerAgent:
         """Check if user wants to restart the conversation"""
         return any(keyword in user_input.lower() for keyword in self.RESTART_KEYWORDS)
     
-    def _route_conversation(self, user_input: str, state: ConversationState) -> str:
-        """Route conversation based on current stage"""
-        entities = self._extract_entities(user_input, state)
+    def _process_intent_and_state(self, user_input: str, state: ConversationState) -> str:
+        """Process user input based on intent and current state"""
+        # Extract all possible entities from user input
+        entities = self._extract_all_entities(user_input, state)
         
-        # Map stages to handler methods
-        handlers = {
-            SchedulingStage.GREETING: self._handle_greeting,
-            SchedulingStage.COLLECT_DURATION: self._handle_duration,
-            SchedulingStage.COLLECT_DATE: self._handle_date,
-            SchedulingStage.COLLECT_TIME: self._handle_time,
-            SchedulingStage.SHOW_SLOTS: self._handle_slot_selection,
-            SchedulingStage.COLLECT_TITLE: self._handle_title,
-            SchedulingStage.CONFIRM_BOOKING: self._handle_confirmation,
-        }
+        # Update state with any new entities
+        self._update_state_with_entities(state, entities)
         
-        handler = handlers.get(state.stage)
-        if handler:
-            return handler(user_input, state, entities)
+        # Determine primary intent and respond accordingly
+        intent = entities.get('intent', 'unclear')
+        
+        # Handle specific intents
+        if intent == 'greeting' or (not any([state.meeting_duration, state.parsed_date, state.preferred_time]) 
+                                   and any(word in user_input.lower() for word in ['meeting', 'schedule', 'book'])):
+            return self._handle_initial_request(state)
+        
+        elif intent == 'slot_selection' and entities.get('slot_number'):
+            return self._handle_slot_selection(entities['slot_number'], state)
+        
+        elif intent == 'confirmation':
+            return self._handle_confirmation(entities.get('confirmation'), state)
+        
+        # Default: determine next action based on state completion
+        return self._determine_next_action(state)
+    
+    def _extract_all_entities(self, user_input: str, state: ConversationState) -> Dict[str, Any]:
+        """Extract all possible entities from user input regardless of current state"""
+        
+        extraction_prompt = f"""
+        Extract all structured information from the user's message for meeting scheduling.
+        
+        CURRENT STATE:
+        - Duration: {state.meeting_duration or 'Not set'} minutes
+        - Date: {state.preferred_date or 'Not set'}
+        - Time: {state.preferred_time or 'Not set'}
+        - Title: {state.meeting_title or 'Not set'}
+        - Available slots: {len(state.available_slots)} options
+        - Awaiting confirmation: {state.awaiting_confirmation}
+        
+        USER MESSAGE: "{user_input}"
+        
+        Extract and return ONLY a JSON object with these fields (use null for missing info):
+        {{
+            "duration_minutes": number or null,
+            "date_preference": "string description or null",
+            "time_preference": "string description or null", 
+            "meeting_title": "string or null",
+            "intent": "greeting|duration|date|time|slot_selection|title|confirmation|restart|unclear",
+            "slot_number": number or null (if selecting from numbered options),
+            "confirmation": "yes|no|null" (for booking confirmations)
+        }}
+        """
+        
+        try:
+            response = self._query_gemini(extraction_prompt)
+            
+            # Extract JSON from response
+            if '{' in response and '}' in response:
+                json_start = response.find('{')
+                json_end = response.rfind('}') + 1
+                json_str = response[json_start:json_end]
+                return json.loads(json_str)
+            
+            return {}
+                
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON from Gemini: {e}")
+            return {}
+        except Exception as e:
+            logger.error(f"Entity extraction failed: {e}")
+            return {}
+    
+    def _update_state_with_entities(self, state: ConversationState, entities: Dict[str, Any]):
+        """Update conversation state with all valid entities"""
+        
+        # Update duration if valid
+        if entities.get('duration_minutes') and self._is_valid_duration(entities['duration_minutes']):
+            state.meeting_duration = entities['duration_minutes']
+        
+        # Update date if valid
+        if entities.get('date_preference'):
+            parsed_date = self._parse_date_with_gemini(entities['date_preference'])
+            if parsed_date:
+                state.preferred_date = entities['date_preference']
+                state.parsed_date = parsed_date
+        
+        # Update time preference
+        if entities.get('time_preference'):
+            state.preferred_time = entities['time_preference']
+        
+        # Update meeting title
+        if entities.get('meeting_title'):
+            state.meeting_title = entities['meeting_title'].strip()
+    
+    def _determine_next_action(self, state: ConversationState) -> str:
+        """Determine what to do next based on current state"""
+        
+        # If awaiting confirmation, ask for confirmation
+        if state.awaiting_confirmation and state.selected_slot:
+            return self._show_final_confirmation(state)
+        
+        # If ready to book, book the meeting
+        if state.is_ready_for_booking():
+            return self._book_meeting(state)
+        
+        # If we have slots available and waiting for selection
+        if state.available_slots and not state.selected_slot:
+            return self._format_available_slots(state.available_slots, state)
+        
+        # If ready to search for slots, do it
+        if state.is_ready_for_slots():
+            return self._search_and_show_slots(state)
+        
+        # Ask for missing required information
+        missing_fields = state.get_missing_required_fields()
+        
+        if 'duration' in missing_fields:
+            return f"How long should the meeting be? (e.g., 30 minutes, 1 hour)"
+        elif 'date' in missing_fields:
+            return f"What date would you prefer? (e.g., tomorrow, June 30, next Monday)"
+        elif 'time' in missing_fields:
+            date_str = state.parsed_date.strftime('%A, %B %d') if state.parsed_date else "that day"
+            return f"What time do you prefer on {date_str}? (e.g., morning, 2 PM, any time)"
+        
+        return "I'm not sure what you need. Would you like to schedule a meeting?"
+    
+    def _handle_initial_request(self, state: ConversationState) -> str:
+        """Handle initial meeting request"""
+        missing_fields = state.get_missing_required_fields()
+        
+        if not missing_fields:
+            return self._search_and_show_slots(state)
+        elif len(missing_fields) == 3:  # All fields missing
+            return "Great! I'll help you schedule a meeting. How long should the meeting be? (e.g., 30 minutes, 1 hour)"
         else:
-            return "I'm not sure where we are in the conversation. Let's start over - do you need to schedule a meeting?"
+            return self._determine_next_action(state)
+    
+    def _handle_slot_selection(self, slot_number: int, state: ConversationState) -> str:
+        """Handle slot selection from available options"""
+        if slot_number and 1 <= slot_number <= len(state.available_slots):
+            selected_slot = state.available_slots[slot_number - 1]
+            state.selected_slot = selected_slot
+            state.awaiting_confirmation = True
+            
+            # If we don't have a title, ask for it; otherwise go to confirmation
+            if not state.meeting_title:
+                start_time = selected_slot['start']
+                if start_time.tzinfo != self.timezone:
+                    start_time = start_time.astimezone(self.timezone)
+                
+                date_str = start_time.strftime('%A, %B %d')
+                time_str = start_time.strftime('%I:%M %p')
+                
+                return (
+                    f"Great choice! I've selected {date_str} at {time_str}.\n\n"
+                    f"What would you like to name this meeting? (or say 'skip' for a default name)"
+                )
+            else:
+                return self._show_final_confirmation(state)
+        else:
+            return f"Please choose a number between 1 and {len(state.available_slots)}."
+    
+    def _handle_confirmation(self, confirmation: str, state: ConversationState) -> str:
+        """Handle booking confirmation"""
+        if confirmation == 'yes':
+            return self._book_meeting(state)
+        elif confirmation == 'no':
+            # Reset slot selection and show slots again
+            state.selected_slot = None
+            state.awaiting_confirmation = False
+            return "No problem! Here are the available slots again:\n\n" + self._format_available_slots(state.available_slots, state)
+        else:
+            return "Please reply 'yes' to confirm the booking or 'no' to see other options."
+    
+    # Existing helper methods (unchanged)
     
     def _query_gemini(self, prompt: str, chat_history: List[Dict] = None) -> str:
         """
@@ -212,186 +369,6 @@ class SchedulerAgent:
         prompt_parts.append(f"CURRENT TIME: {current_time.strftime('%A, %B %d, %Y at %I:%M %p IST')}")
         
         return "\n".join(prompt_parts)
-    
-    def _extract_entities(self, user_input: str, state: ConversationState) -> Dict[str, Any]:
-        """Extract structured information from user input using Gemini"""
-        
-        extraction_prompt = f"""
-        Extract structured information from the user's message for meeting scheduling.
-        
-        CURRENT STAGE: {state.stage}
-        ALREADY COLLECTED:
-        - Duration: {state.meeting_duration or 'Not set'} minutes
-        - Date: {state.preferred_date or 'Not set'}
-        - Time: {state.preferred_time or 'Not set'}
-        - Title: {state.meeting_title or 'Not set'}
-        
-        USER MESSAGE: "{user_input}"
-        
-        Extract and return ONLY a JSON object with these fields (use null for missing info):
-        {{
-            "duration_minutes": number or null,
-            "date_preference": "string description or null",
-            "time_preference": "string description or null", 
-            "meeting_title": "string or null",
-            "intent": "greeting|duration|date|time|slot_selection|title|confirmation|restart|unclear",
-            "slot_number": number or null (if selecting from numbered options),
-            "confirmation": "yes|no|null" (for booking confirmations)
-        }}
-        """
-        
-        try:
-            response = self._query_gemini(extraction_prompt)
-            
-            # Extract JSON from response
-            if '{' in response and '}' in response:
-                json_start = response.find('{')
-                json_end = response.rfind('}') + 1
-                json_str = response[json_start:json_end]
-                return json.loads(json_str)
-            
-            return {}
-                
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON from Gemini: {e}")
-            return {}
-        except Exception as e:
-            logger.error(f"Entity extraction failed: {e}")
-            return {}
-    
-    # Stage handlers
-    
-    def _handle_greeting(self, user_input: str, state: ConversationState, entities: Dict[str, Any]) -> str:
-        """Handle initial greeting and meeting request"""
-        if entities.get('intent') == 'greeting' or any(word in user_input.lower() 
-                                                     for word in ['meeting', 'schedule', 'book']):
-            state.stage = SchedulingStage.COLLECT_DURATION
-            
-            # Check if duration was provided upfront
-            if entities.get('duration_minutes'):
-                duration = entities['duration_minutes']
-                if self._is_valid_duration(duration):
-                    state.meeting_duration = duration
-                    state.stage = SchedulingStage.COLLECT_DATE
-
-                    # Check if date was also provided
-                    if entities.get('date_preference'):
-                        parsed_date = self._parse_date_with_gemini(entities['date_preference'])
-                        if parsed_date:
-                            state.preferred_date = entities['date_preference']
-                            state.parsed_date = parsed_date
-                            state.stage = SchedulingStage.COLLECT_TIME
-                            date_str = parsed_date.strftime('%A, %B %d')
-
-                            # Check if time preference was also provided
-                            if entities.get('time_preference'):
-                                state.preferred_time = entities['time_preference']
-                                return self._search_and_show_slots(state)
-
-                            return f"Perfect! A {duration}-minute meeting on {date_str}. What time do you prefer?"
-
-                    return f"Perfect! A {duration}-minute meeting. What date would you prefer?"
-                
-                
-            
-            return "Great! I'll help you schedule a meeting. How long should the meeting be? (e.g., 30 minutes, 1 hour)"
-        
-        return "Hello! I can help you schedule meetings. Would you like to book a meeting?"
-    
-    def _handle_duration(self, user_input: str, state: ConversationState, entities: Dict[str, Any]) -> str:
-        """Handle duration collection"""
-        duration = entities.get('duration_minutes')
-        
-        if duration and self._is_valid_duration(duration):
-            state.meeting_duration = duration
-            state.stage = SchedulingStage.COLLECT_DATE
-            
-            # Check if date was also provided
-            if entities.get('date_preference'):
-                parsed_date = self._parse_date_with_gemini(entities['date_preference'])
-                if parsed_date:
-                    state.preferred_date = entities['date_preference']
-                    state.parsed_date = parsed_date
-                    state.stage = SchedulingStage.COLLECT_TIME
-                    date_str = parsed_date.strftime('%A, %B %d')
-
-                    # Check if time preference was also provided
-                    if entities.get('time_preference'):
-                        state.preferred_time = entities['time_preference']
-                        return self._search_and_show_slots(state)
-
-                    return f"Perfect! A {duration}-minute meeting on {date_str}. What time do you prefer?"
-            
-            return f"Perfect! A {duration}-minute meeting. What date would you prefer?"
-        else:
-            return f"Please specify a meeting duration between {self.MIN_DURATION_MINUTES} minutes and {self.MAX_DURATION_MINUTES // 60} hours (e.g., '30 minutes', '1 hour', '2 hours')."
-    
-    def _handle_date(self, user_input: str, state: ConversationState, entities: Dict[str, Any]) -> str:
-        """Handle date collection"""
-        date_preference = entities.get('date_preference') or user_input
-        parsed_date = self._parse_date_with_gemini(date_preference)
-        
-        if parsed_date:
-            state.preferred_date = date_preference
-            state.parsed_date = parsed_date
-            state.stage = SchedulingStage.COLLECT_TIME
-            
-            date_str = parsed_date.strftime('%A, %B %d')
-            
-            # Check if time preference was also provided
-            if entities.get('time_preference'):
-                state.preferred_time = entities['time_preference']
-                return self._search_and_show_slots(state)
-                
-            return f"Got it! {date_str}. What time do you prefer? (e.g., 'morning', 'afternoon', '2 PM', 'any time')"
-        else:
-            return "I couldn't understand that date. Please try formats like 'tomorrow', 'June 15', 'next Monday', or 'this Friday'."
-    
-    def _handle_time(self, user_input: str, state: ConversationState, entities: Dict[str, Any]) -> str:
-        """Handle time preference collection"""
-        time_preference = entities.get('time_preference') or user_input.lower()
-        state.preferred_time = time_preference
-        
-        return self._search_and_show_slots(state)
-    
-    def _handle_slot_selection(self, user_input: str, state: ConversationState, entities: Dict[str, Any]) -> str:
-        """Handle slot selection from available options"""
-        slot_number = entities.get('slot_number')
-        
-        if slot_number and 1 <= slot_number <= len(state.available_slots):
-            return self._select_slot_and_ask_title(slot_number, state)
-        else:
-            return f"Please choose a number between 1 and {len(state.available_slots)}, or say 'show different times' for other options."
-    
-    def _handle_title(self, user_input: str, state: ConversationState, entities: Dict[str, Any]) -> str:
-        """Handle meeting title collection"""
-        # Check if user wants to skip title
-        if user_input.lower().strip() in ['skip', 'no title', 'default', 'none']:
-            state.meeting_title = None
-            return self._show_final_confirmation(state)
-        
-        # Extract title from entities or clean user input
-        meeting_title = entities.get('meeting_title') or self._clean_title_input(user_input)
-        
-        if meeting_title and len(meeting_title.strip()) > 0:
-            state.meeting_title = meeting_title.strip()
-            return self._show_final_confirmation(state)
-        else:
-            return "I didn't catch that. What would you like to name the meeting? Or say 'skip' to use a default name."
-    
-    def _handle_confirmation(self, user_input: str, state: ConversationState, entities: Dict[str, Any]) -> str:
-        """Handle booking confirmation"""
-        confirmation = entities.get('confirmation')
-        
-        if confirmation == 'yes':
-            return self._book_meeting(state)
-        elif confirmation == 'no':
-            state.stage = SchedulingStage.SHOW_SLOTS
-            return "No problem! Here are the available slots again:\n\n" + self._format_available_slots(state.available_slots, state)
-        else:
-            return "Please reply 'yes' to confirm the booking or 'no' to see other options."
-    
-    # Helper methods
     
     def _is_valid_duration(self, duration: int) -> bool:
         """Check if duration is within acceptable limits"""
@@ -459,7 +436,6 @@ class SchedulerAgent:
             
             if slots:
                 state.available_slots = slots
-                state.stage = SchedulingStage.SHOW_SLOTS
                 return self._format_available_slots(slots, state)
             else:
                 date_str = state.parsed_date.strftime('%A, %B %d')
@@ -490,36 +466,8 @@ class SchedulerAgent:
         response += "\nWhich slot would you prefer? Just say the number (e.g., '1' or '2')."
         return response
     
-    def _select_slot_and_ask_title(self, selection_number: int, state: ConversationState) -> str:
-        """Select slot and transition to title collection"""
-        selected_slot = state.available_slots[selection_number - 1]
-        state.selected_slot = selected_slot
-        state.stage = SchedulingStage.COLLECT_TITLE
-        
-        start_time = selected_slot['start']
-        end_time = selected_slot['end']
-        
-        # Ensure timezone consistency
-        if start_time.tzinfo != self.timezone:
-            start_time = start_time.astimezone(self.timezone)
-            end_time = end_time.astimezone(self.timezone)
-        
-        date_str = start_time.strftime('%A, %B %d')
-        time_str = start_time.strftime('%I:%M %p')
-        end_time_str = end_time.strftime('%I:%M %p')
-        
-        return (
-            f"Great choice! I've selected:\n\n"
-            f"📅 Date: {date_str}\n"
-            f"⏰ Time: {time_str} - {end_time_str} IST\n"
-            f"⏱️ Duration: {state.meeting_duration} minutes\n\n"
-            f"What would you like to name this meeting? (e.g., 'Team Standup', 'Client Call', or just say 'skip' for a default name)"
-        )
-    
     def _show_final_confirmation(self, state: ConversationState) -> str:
         """Show final confirmation with all meeting details"""
-        state.stage = SchedulingStage.CONFIRM_BOOKING
-        
         selected_slot = state.selected_slot
         start_time = selected_slot['start']
         end_time = selected_slot['end']
@@ -537,10 +485,10 @@ class SchedulerAgent:
         
         return (
             f"Perfect! Let me confirm all the details:\n\n"
-            f"📋 Title: {display_title}\n"
-            f"📅 Date: {date_str}\n"
-            f"⏰ Time: {time_str} - {end_time_str} IST\n"
-            f"⏱️ Duration: {state.meeting_duration} minutes\n\n"
+            f"Title: {display_title}\n"
+            f" Date: {date_str}\n"
+            f"Time: {time_str} - {end_time_str} IST\n"
+            f"Duration: {state.meeting_duration} minutes\n\n"
             f"Should I book this meeting? Reply 'yes' to confirm or 'no' to make changes."
         )
     
@@ -560,7 +508,8 @@ class SchedulerAgent:
             event_id = self.calendar_service.create_event(event_details)
             
             if event_id:
-                state.stage = SchedulingStage.COMPLETED
+                # Reset state for new conversation
+                state.reset()
                 
                 start_time = selected_slot['start']
                 if start_time.tzinfo != self.timezone:
@@ -570,11 +519,12 @@ class SchedulerAgent:
                 time_str = start_time.strftime('%I:%M %p')
                 
                 return (
-                    f"🎉 Meeting booked successfully!\n\n"
-                    f"📋 Title: {meeting_title}\n"
-                    f"📅 Date: {date_str}\n"
-                    f"⏰ Time: {time_str} IST\n"
-                    f"⏱️ Duration: {state.meeting_duration} minutes\n\n"
+                    f"Meeting booked successfully!\n\n"
+                    f"Title: {meeting_title}\n"
+                    f"Date: {date_str}\n"
+                    f"Time: {time_str} IST\n"
+                    f"Duration: {state.meeting_duration} minutes\n\n"
+                    f"Event ID: {event_id}\n"
                     f"The meeting has been added to your calendar. Need to schedule another meeting?"
                 )
             else:
