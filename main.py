@@ -1,16 +1,23 @@
-from flask import Flask, render_template, request, jsonify, session, send_file
+from flask import Flask, render_template, request, jsonify, session
 from flask_cors import CORS
 import os
 import tempfile
+import time
 import secrets
+import logging
+import asyncio
 from dotenv import load_dotenv
 from agent import SchedulerAgent
-from audio_utils import transcribe_audio, synthesize_speech
+from audio_utils import transcribe_audio_async, synthesize_speech_async, cleanup_temp_files
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 app = Flask(__name__)
-app.secret_key = secrets.token_hex(16)
-CORS(app)  # Enable CORS for frontend access
+app.secret_key = secrets.token_hex(16) # Sets a random 32-character secret key for Flask sessions.
+
+
+CORS(app) # so frontend (e.g., React, JS) can call Flask API from a different domain/port 
 scheduler_agent = SchedulerAgent()
 
 @app.route('/')
@@ -22,7 +29,7 @@ def index():
 def chat():
     """Handle text chat messages"""
     try:
-        data = request.get_json()
+        data = request.get_json() # Parses the JSON body from the incoming POST request
         user_message = data.get('message', '')
         if 'session_id' not in session:
             session['session_id'] = secrets.token_hex(8)
@@ -42,7 +49,10 @@ def chat():
 
 @app.route('/voice-chat', methods=['POST'])
 def voice_chat():
-    """Handle voice chat messages"""
+    """Handle voice chat messages with optimized async processing"""
+    temp_audio_path = None
+    tts_output_path = None
+    
     try:
         if 'audio' not in request.files:
             return jsonify({
@@ -67,51 +77,66 @@ def voice_chat():
             audio_file.save(temp_audio.name)
             temp_audio_path = temp_audio.name
         
+        # Create temporary file for TTS output
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as temp_tts:
+            tts_output_path = temp_tts.name
+        
+        # Use async processing for better performance
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
         try:
-            # Transcribe audio to text using Whisper
-            transcript = transcribe_audio(temp_audio_path)
+            # Transcribe audio to text
+            transcript = loop.run_until_complete(
+                transcribe_audio_async(temp_audio_path)
+            )
             
             if not transcript or transcript.strip() == '':
                 return jsonify({
                     'response': 'Could not transcribe audio. Please try again.',
                     'success': False
                 })
-            text_response = scheduler_agent.process_message(transcript, session_id)
-
-            # Create temporary file for TTS output
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as temp_tts: 
-                tts_output_path = temp_tts.name
             
-            audio_path = synthesize_speech(text_response, tts_output_path)
-            with open(audio_path, 'rb') as audio_file:
-                audio_data = audio_file.read()
+            # Process the transcribed message
+            text_response = scheduler_agent.process_message(transcript, session_id)
+            
+            # Generate speech response
+            audio_path = loop.run_until_complete(
+                synthesize_speech_async(text_response, tts_output_path)
+            )
+            
+            if not audio_path or not os.path.exists(audio_path):
+                return jsonify({
+                    'transcript': transcript,
+                    'response': text_response,
+                    'success': False,
+                    'error': 'Failed to generate audio response'
+                })
+            
+            # Read audio data for response
+            with open(audio_path, 'rb') as af:
+                audio_data = af.read()
+            
+            # Clean up temporary files
+            cleanup_temp_files(temp_audio_path, tts_output_path)
             
             return jsonify({
                 'transcript': transcript,
                 'response': text_response,
-                'audio_data': audio_data.hex(),  # Convert to hex for JSON serialization
+                'audio_data': audio_data.hex(),
                 'success': True
             })
             
-        except Exception as stt_tts_error:
-            return jsonify({
-                'response': f'Speech processing error: {str(stt_tts_error)}',
-                'success': False
-            }), 500
-            
         finally:
-            # Clean up temporary files
-            try:
-                if os.path.exists(temp_audio_path):
-                    os.unlink(temp_audio_path)
-                if 'tts_output_path' in locals() and os.path.exists(tts_output_path):
-                    os.unlink(tts_output_path)
-                if 'audio_path' in locals() and os.path.exists(audio_path):
-                    os.unlink(audio_path)
-            except OSError:
-                pass  
-                
+            loop.close()
+            
     except Exception as e:
+        # Clean up files on error
+        if temp_audio_path:
+            cleanup_temp_files(temp_audio_path)
+        if tts_output_path:
+            cleanup_temp_files(tts_output_path)
+            
         return jsonify({
             'response': f"Sorry, I encountered an error: {str(e)}",
             'success': False
