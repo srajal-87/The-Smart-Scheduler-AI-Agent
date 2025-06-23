@@ -7,3 +7,12 @@ python-dotenv
 requests
 python-dateutil
 pytz
+
+# google-cloud-speech  # === Voice Dependencies ===
+# google-cloud-texttospeech  # Audio processing
+
+elevenlabs
+pydub
+openai-whisper 
+pydub
+flask_cors
